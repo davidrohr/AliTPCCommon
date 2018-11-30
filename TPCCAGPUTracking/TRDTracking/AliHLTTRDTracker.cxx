@@ -1,6 +1,6 @@
-#define ENABLE_HLTTRDDEBUG
-#define ENABLE_WARNING 1
-#define ENABLE_INFO 1
+//#define ENABLE_HLTTRDDEBUG
+#define ENABLE_WARNING 0
+#define ENABLE_INFO 0
 #ifdef HLTCA_BUILD_ALIROOT_LIB
 #define ENABLE_HLTMC
 #endif
@@ -85,7 +85,6 @@ AliHLTTRDTracker::AliHLTTRDTracker() :
   fHypothesis(nullptr),
   fCandidates(nullptr),
   fSpacePoints(nullptr),
-  fExternalGeometry(false),
   fGeo(nullptr),
   fDebugOutput(false),
   fMinPt(0.6),
@@ -159,25 +158,6 @@ GPUd() bool AliHLTTRDTracker::Init(AliHLTTRDGeometry *geo)
   for (int iLy=0; iLy<kNLayers; iLy++) {
     fR[iLy] = x0[iLy];
   }
-  if (geo)
-  {
-      fGeo = geo;
-      fExternalGeometry = true;
-  }
-  else
-  {
-      if(!AliHLTTRDGeometry::CheckGeometryAvailable()){
-        Error("Init", "Could not get geometry.");
-        return;
-      }
-
-      fGeo = new AliHLTTRDGeometry();
-      if (!fGeo) {
-        Error("Init", "TRD geometry could not be loaded");
-        return;
-      }
-      fGeo->CreateClusterMatrixArray();
-  }
   auto* matrix = fGeo->GetClusterMatrix(0);
   My_Float loc[3] = { fGeo->AnodePos(), 0., 0. };
   My_Float glb[3] = { 0., 0., 0. };
@@ -224,6 +204,7 @@ GPUd() void AliHLTTRDTracker::Reset()
     fNtrackletsInChamber[iDet] = 0;
     fTrackletIndexArray[iDet] = -1;
   }
+  /*
   // FIXME temporary reset helper arrays, not needed for production
   for (int iHypo=0; iHypo<fNhypothesis*fMaxThreads; ++iHypo) {
     fHypothesis[iHypo].fCandidateId = -2;
@@ -231,6 +212,7 @@ GPUd() void AliHLTTRDTracker::Reset()
     fHypothesis[iHypo].fLayers = 0;
     fHypothesis[iHypo].fChi2 = 0.f;
   }
+  */
 }
 
 GPUd() void AliHLTTRDTracker::StartLoadTracklets(const int nTrklts)
@@ -266,7 +248,7 @@ GPUd() void AliHLTTRDTracker::LoadTracklet(const AliHLTTRDTrackletWord &tracklet
 
 #endif
 
-GPUd() void AliHLTTRDTracker::DoTracking( HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int *tracksTPCnTrklts, int *tracksTRDlabel )
+GPUd() void AliHLTTRDTracker::DoTracking( HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int *tracksTRDnTrklts, int *tracksTRDlab )
 {
   //--------------------------------------------------------------------
   // Steering function for the tracking
@@ -303,26 +285,26 @@ GPUd() void AliHLTTRDTracker::DoTracking( HLTTRDTrack *tracksTPC, int *tracksTPC
   auto timeStart = std::chrono::high_resolution_clock::now();
 
   //omp_set_dynamic(0);
-  //omp_set_num_threads(15);
-//#pragma omp parallel for
+  //omp_set_num_threads(1);
+#pragma omp parallel for
   for (int i=0; i<nTPCtracks; ++i) {
-    //if (omp_get_num_threads() > fMaxThreads) {
-    //  Error("DoTracking", "number of parallel threads too high, aborting tracking");
-    //  // break statement not possible in OpenMP for loop
-    //  i = nTPCtracks;
-    //  continue;
-    //}
-    //int threadId = omp_get_thread_num();
-    int threadId = 0;
+    if (omp_get_num_threads() > fMaxThreads) {
+      Error("DoTracking", "number of parallel threads too high, aborting tracking");
+      // break statement not possible in OpenMP for loop
+      i = nTPCtracks;
+      continue;
+    }
+    int threadId = omp_get_thread_num();
+    //int threadId = 0;
 //#pragma omp critical
 //{
-    DoTrackingThread(tracksTPC, tracksTPClab, nTPCtracks, i, threadId, tracksTPCnTrklts, tracksTRDlabel);
+    DoTrackingThread(tracksTPC, tracksTPClab, nTPCtracks, i, threadId, tracksTRDnTrklts, tracksTRDlab);
 //}
   }
 
   auto duration = std::chrono::high_resolution_clock::now() - timeStart;
 
-  std::cout << "Time for event " << fNEvents << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() << " ms" << std::endl;
+  std::cout << "--->  ----> ----> Time for event " << fNEvents << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() << " ms" << std::endl;
 
   //DumpTracks();
 
@@ -340,7 +322,7 @@ GPUd() void AliHLTTRDTracker::DumpTracks()
   }
 }
 
-GPUd() void AliHLTTRDTracker::DoTrackingThread( HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int iTrk, int threadId, int *tracksTPCnTrklts, int *tracksTRDlabel )
+GPUd() void AliHLTTRDTracker::DoTrackingThread( HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int iTrk, int threadId, int *tracksTRDnTrklts, int *tracksTRDlab )
 {
   //--------------------------------------------------------------------
   // perform the tracking for one track (must be threadsafe)
@@ -349,19 +331,21 @@ GPUd() void AliHLTTRDTracker::DoTrackingThread( HLTTRDTrack *tracksTPC, int *tra
   HLTTRDTrack *t = &tMI;
   t->SetTPCtrackId(iTrk);
   t->SetLabel(tracksTPClab[iTrk]);
-  if (tracksTPCnTrklts) {
-    t->SetNtrackletsOffline(tracksTPCnTrklts[iTrk]);
+  if (tracksTRDnTrklts) {
+    for (int i=0; i<4; ++i) {
+      t->SetNtrackletsOffline(i, tracksTRDnTrklts[iTrk*4+i]);
+    }
   }
-  if (tracksTRDlabel) {
-    t->SetLabelOffline(tracksTRDlabel[iTrk]);
+  if (tracksTRDlab) {
+    t->SetLabelOffline(tracksTRDlab[iTrk]);
   }
   HLTTRDPropagator prop(fMerger);
   prop.setTrack(t);
   FollowProlongation(&prop, t, nTPCtracks, threadId);
-//#pragma omp atomic write
-  fTracks[fNTracks] = *t;
-//#pragma omp atomic write
-  fNTracks++;
+//#pragma omp atomic write // FIXME could be that this fails with OpenMP...
+  fTracks[fNTracks] = tMI;
+#pragma omp atomic write
+  fNTracks = fNTracks + 1;
 }
 
 
@@ -384,7 +368,6 @@ GPUd() bool AliHLTTRDTracker::CalculateSpacePoints()
     auto* matrix = fGeo->GetClusterMatrix(iDet);
     if (!matrix){
       Error("CalculateSpacePoints", "Invalid TRD cluster matrix, skipping detector  %i", iDet);
-      printf("Could not get cluster matrix for detector %i\n", iDet);
       result = false;
       continue;
     }
@@ -419,7 +402,7 @@ GPUd() bool AliHLTTRDTracker::CalculateSpacePoints()
       int modId   = fGeo->GetSector(iDet) * AliHLTTRDGeometry::kNstack + fGeo->GetStack(iDet); // global TRD stack number
       unsigned short volId = fGeo->GetGeomManagerVolUID(iDet, modId);
       fSpacePoints[trkltIdx].fVolumeId = volId;
-      printf("Space point %i: x=%f, y=%f, z=%f\n", iTrklt, fSpacePoints[trkltIdx].fR, fSpacePoints[trkltIdx].fX[0], fSpacePoints[trkltIdx].fX[1]); 
+      //printf("Space point %i: x=%f, y=%f, z=%f\n", iTrklt, fSpacePoints[trkltIdx].fR, fSpacePoints[trkltIdx].fX[0], fSpacePoints[trkltIdx].fX[1]);
     }
   }
   return result;
@@ -436,7 +419,6 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
   //--------------------------------------------------------------------
 
   if (!t->CheckNumericalQuality()) {
-    printf("Error: track does not pass quality check\n");
     return false;
   }
 
@@ -457,7 +439,6 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
 
 #ifdef ENABLE_HLTTRDDEBUG
   HLTTRDTrack trackNoUp(*t);
-  //printf("Track w/o updates: x=%f, y=%f, z=%f\n", trackNoUp.GetX(),  trackNoUp.GetY(), trackNoUp.GetZ());
 #endif
 
   // look for matching tracklets via MC label
@@ -502,8 +483,6 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
     //
     // --------------------------------------------------------------------------------
     for (int iCandidate=0; iCandidate<nCandidates; iCandidate++) {
-
-      printf("Processing candidate %i in layer %i\n", iCandidate, iLayer);
 
       int det[nMaxChambersToSearch] = { -1, -1, -1, -1 }; // TRD chambers to be searched for tracklets
 
@@ -621,8 +600,9 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
           if ( (CAMath::Abs(deltaY) < roadY) && (CAMath::Abs(deltaZ) < roadZ) )
           {
             //tracklet is in windwow: get predicted chi2 for update and store tracklet index if best guess
-            RecalcTrkltCov(trkltIdx, tilt, fCandidates[2*iCandidate+currIdx].getSnp(), pad->GetRowSize(fTracklets[trkltIdx].GetZbin()), trkltCovTmp);
+            RecalcTrkltCov(tilt, fCandidates[2*iCandidate+currIdx].getSnp(), pad->GetRowSize(fTracklets[trkltIdx].GetZbin()), trkltCovTmp);
             float chi2 = prop->getPredictedChi2(trkltPosTmpYZ, trkltCovTmp);
+            //printf("layer %i: chi2 = %f\n", iLayer, chi2);
             if (chi2 < fMaxChi2) {
               if (nCurrHypothesis < fNhypothesis) {
                 fHypothesis[nCurrHypothesis + hypothesisIdxOffset].fChi2 = fCandidates[2*iCandidate+currIdx].GetChi2() + chi2;
@@ -697,7 +677,7 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
         }
         My_Float yzPosReal[2] = { fSpacePoints[realTrkltId].fX[0] - tiltCorrReal, zPosCorrReal };
         My_Float covReal[3] = { 0. };
-        RecalcTrkltCov(realTrkltId, tilt, fCandidates[currIdx].getSnp(), pad->GetRowSize(fTracklets[realTrkltId].GetZbin()), covReal);
+        RecalcTrkltCov(tilt, fCandidates[currIdx].getSnp(), pad->GetRowSize(fTracklets[realTrkltId].GetZbin()), covReal);
         fDebug->SetChi2Real(prop->getPredictedChi2(yzPosReal, covReal), iLayer);
         fDebug->SetRawTrackletPositionReal(fSpacePoints[realTrkltId].fR, fSpacePoints[realTrkltId].fX, iLayer);
         fDebug->SetCorrectedTrackletPositionReal(yzPosReal, iLayer);
@@ -715,8 +695,8 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
     // loop over the best N_candidates hypothesis
     //
     // --------------------------------------------------------------------------------
-    printf("nCurrHypothesis=%i, nCandidates=%i\n", nCurrHypothesis, nCandidates);
-    for (int idx=0; idx<10; ++idx) { printf("fHypothesis[%i]: candidateId=%i, nLayers=%i, trackletId=%i, chi2=%f\n", idx, fHypothesis[idx].fCandidateId,  fHypothesis[idx].fLayers, fHypothesis[idx].fTrackletId, fHypothesis[idx].fChi2); }
+    //printf("nCurrHypothesis=%i, nCandidates=%i\n", nCurrHypothesis, nCandidates);
+    //for (int idx=0; idx<10; ++idx) { printf("fHypothesis[%i]: candidateId=%i, nLayers=%i, trackletId=%i, chi2=%f\n", idx, fHypothesis[idx].fCandidateId,  fHypothesis[idx].fLayers, fHypothesis[idx].fTrackletId, fHypothesis[idx].fChi2); }
     for (int iUpdate = 0; iUpdate < nCurrHypothesis && iUpdate < fNCandidates; iUpdate++) {
       if (fHypothesis[iUpdate + hypothesisIdxOffset].fCandidateId == -1) {
         // no more candidates
@@ -776,14 +756,13 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
       }
       My_Float trkltPosUp[2] = { fSpacePoints[fHypothesis[iUpdate + hypothesisIdxOffset].fTrackletId].fX[0] - tiltCorrUp, zPosCorrUp };
       My_Float trkltCovUp[3] = { 0. };
-      RecalcTrkltCov(fHypothesis[iUpdate + hypothesisIdxOffset].fTrackletId, tilt, fCandidates[2*iUpdate+nextIdx].getSnp(), pad->GetRowSize(fTracklets[fHypothesis[iUpdate + hypothesisIdxOffset].fTrackletId].GetZbin()), trkltCovUp);
+      RecalcTrkltCov(tilt, fCandidates[2*iUpdate+nextIdx].getSnp(), pad->GetRowSize(fTracklets[fHypothesis[iUpdate + hypothesisIdxOffset].fTrackletId].GetZbin()), trkltCovUp);
 
 #ifdef ENABLE_HLTTRDDEBUG
       prop->setTrack(&trackNoUp);
       prop->rotate(GetAlphaOfSector(trkltSec));
-      //prop->PropagateToX(fSpacePoints[fHypothesis[iUpdate + hypothesisIdxOffset].fTrackletId].fR, .8f, 2.f);
+      prop->PropagateToX(fSpacePoints[fHypothesis[iUpdate + hypothesisIdxOffset].fTrackletId].fR, .8f, 2.f);
       prop->PropagateToX(fR[iLayer], .8f, 2.f);
-      printf("Track w/o updates (layer %i): x=%f, y=%f, z=%f\n", iLayer, trackNoUp.GetX(),  trackNoUp.GetY(), trackNoUp.GetZ());
       prop->setTrack(&fCandidates[2*iUpdate+nextIdx]);
 #endif
 
@@ -874,7 +853,11 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
 #ifdef ENABLE_HLTMC
           if (update[iLy] < 1 && fMCEvent) {
             // no exact match, check in related labels
+            bool isRelated = false;
             for (int il=0; il<3; il++) {
+              if (isRelated) {
+                break;
+              }
               if ( (lbTracklet = fSpacePoints[t->GetTracklet(iLy)].fLabel[il]) < 0 ) {
                 // no more valid labels
                 continue;
@@ -885,6 +868,7 @@ GPUd() bool AliHLTTRDTracker::FollowProlongation(HLTTRDPropagator *prop, HLTTRDT
                 if (motherPart == CAMath::Abs(trackID)) {
                   update[iLy] = 4 + il;
                   nRelated++;
+                  isRelated = true;
                   break;
                 }
                 mcPart = motherPart >= 0 ? (AliMCParticle*) fMCEvent->GetTrack(motherPart) : 0;
@@ -989,7 +973,7 @@ GPUd() float AliHLTTRDTracker::GetAlphaOfSector(const int sec) const
   return (2.0f * M_PI / (float) kNSectors * ((float) sec + 0.5f));
 }
 
-GPUd() void AliHLTTRDTracker::RecalcTrkltCov(const int trkltIdx, const float tilt, const float snp, const float rowSize, My_Float (&cov)[3])
+GPUd() void AliHLTTRDTracker::RecalcTrkltCov(const float tilt, const float snp, const float rowSize, My_Float (&cov)[3])
 {
   //--------------------------------------------------------------------
   // recalculate tracklet covariance taking track phi angle into account

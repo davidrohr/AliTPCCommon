@@ -60,8 +60,8 @@ class AliHLTTRDTracker {
   GPUd() void Reset();
   GPUd() void StartLoadTracklets(const int nTrklts);
   GPUd() void LoadTracklet(const AliHLTTRDTrackletWord &tracklet);
-  GPUd() void DoTracking(HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int *tracksTPCnTrklts = 0x0, int *tracksTRDlabel = 0x0);
-  GPUd() void DoTrackingThread(HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int iTrk, int threadId, int *tracksTPCnTrklts = 0x0, int *tracksTRDlabel = 0x0);
+  GPUd() void DoTracking(HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int *tracksTRDnTrklts = 0x0, int *tracksTRDlab = 0x0);
+  GPUd() void DoTrackingThread(HLTTRDTrack *tracksTPC, int *tracksTPClab, int nTPCtracks, int iTrk, int threadId, int *tracksTRDnTrklts = 0x0, int *tracksTRDlab = 0x0);
   GPUd() bool CalculateSpacePoints();
   GPUd() bool FollowProlongation(HLTTRDPropagator *prop, HLTTRDTrack *t, int nTPCtracks, int threadId);
   GPUd() int GetDetectorNumber(const float zPos, const float alpha, const int layer) const;
@@ -69,7 +69,7 @@ class AliHLTTRDTracker {
   GPUd() int GetSector(float alpha) const;
   GPUd() float GetAlphaOfSector(const int sec) const;
   GPUd() float GetRPhiRes(float snp) const { return (0.04f*0.04f+0.33f*0.33f*(snp-0.126f)*(snp-0.126f)); } // parametrization obtained from track-tracklet residuals
-  GPUd() void RecalcTrkltCov(const int trkltIdx, const float tilt, const float snp, const float rowSize, My_Float (&cov)[3]);
+  GPUd() void RecalcTrkltCov(const float tilt, const float snp, const float rowSize, My_Float (&cov)[3]);
   void CountMatches(const int trackID, std::vector<int> *matches) const;
   GPUd() void CheckTrackRefs(const int trackID, bool *findableMC) const;
   GPUd() void FindChambersInRoad(const HLTTRDTrack *t, const float roadY, const float roadZ, const int iLayer, int* det, const float zMax, const float alpha) const;
@@ -127,7 +127,6 @@ class AliHLTTRDTracker {
   Hypothesis *fHypothesis;                    // array with multiple track hypothesis
   HLTTRDTrack *fCandidates;                   // array of tracks for multiple hypothesis tracking
   AliHLTTRDSpacePointInternal *fSpacePoints;  // array with tracklet coordinates in global tracking frame
-  bool fExternalGeometry;                     // Geometry taken fron external, do not delete!
   AliHLTTRDGeometry *fGeo;                    // TRD geometry
   bool fDebugOutput;                          // store debug output
   float fMinPt;                               // min pt of TPC tracks for tracking
