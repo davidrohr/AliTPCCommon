@@ -11,6 +11,7 @@
 #endif
 
 #include "AliGPUReconstruction.h"
+#include "AliGPUReconstructionConvert.h"
 
 #include "AliHLTTPCCAClusterData.h"
 #include "AliHLTTPCCASliceOutput.h"
@@ -26,17 +27,16 @@
 #include "TPCFastTransform.h"
 #include "standaloneSettings.h"
 #include "AliHLTTPCRawCluster.h"
+#include "ClusterNativeAccessExt.h"
 
 #define HLTCA_LOGGING_PRINTF
 #include "AliCAGPULogging.h"
 
 #ifdef HAVE_O2HEADERS
 #include "ITStracking/TrackerTraitsCPU.h"
-#include "DataFormatsTPC/ClusterNative.h"
 #include "TRDBase/TRDGeometryFlat.h"
 #else
 namespace o2 { namespace ITS { class TrackerTraits {}; class TrackerTraitsCPU : public TrackerTraits {}; }}
-namespace o2 { namespace TPC { struct ClusterNativeAccessFullTPC {ClusterNative* clusters[36][HLTCA_ROW_COUNT]; unsigned int nClusters[36][HLTCA_ROW_COUNT];}; struct ClusterNative {}; }}
 namespace o2 { namespace trd { struct TRDGeometryFlat {}; }}
 #endif
 using namespace o2::ITS;
@@ -52,7 +52,7 @@ static constexpr unsigned int DUMP_HEADER_SIZE = 4;
 static constexpr char DUMP_HEADER[DUMP_HEADER_SIZE + 1] = "CAv1";
 
 AliGPUReconstruction::AliGPUReconstruction(DeviceType type) : mIOPtrs(), mIOMem(), mTRDTracker(new AliHLTTRDTracker), mTPCTracker(nullptr), mITSTrackerTraits(nullptr), mDeviceType(type), mTPCFastTransform(nullptr), mEventDumpSettings(new hltca_event_dump_settings),
-	mClusterNativeAccess(new ClusterNativeAccessFullTPC)
+	mClusterNativeAccess(new ClusterNativeAccessExt)
 {
 	mEventDumpSettings->setDefaults();
 	if (type == CPU)
@@ -341,6 +341,20 @@ template <class T> void AliGPUReconstruction::ReadStructFromFile(const char* fil
 	r = fread(obj, 1, size, fp);
 	fclose(fp);
 	//printf("Read %d bytes from %s\n", (int) r, file);
+}
+
+void AliGPUReconstruction::ConvertNativeToClusterData()
+{
+	o2::TPC::ClusterNativeAccessFullTPC* tmp = mClusterNativeAccess.get();
+	if (tmp != mIOPtrs.clustersNative)
+	{
+		*tmp = *mIOPtrs.clustersNative;
+	}
+	AliGPUReconstructionConvert::ConvertNativeToClusterData(mClusterNativeAccess.get(), mIOMem.clusterData, mIOPtrs.nClusterData, mTPCFastTransform.get());
+	for (unsigned int i = 0;i < NSLICES;i++)
+	{
+		mIOPtrs.clusterData[i] = mIOMem.clusterData[i].get();
+	}
 }
 
 void AliGPUReconstruction::SetSettingsStandalone(float solenoidBz)
