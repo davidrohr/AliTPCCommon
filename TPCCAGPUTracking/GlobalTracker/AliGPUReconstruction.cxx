@@ -11,6 +11,7 @@
 #endif
 
 #include "AliGPUReconstruction.h"
+#include "AliGPUReconstructionConvert.h"
 
 #include "AliHLTTPCCAClusterData.h"
 #include "AliHLTTPCCASliceOutput.h"
@@ -24,19 +25,17 @@
 #include "AliHLTTRDTrack.h"
 #include "AliHLTTRDTracker.h"
 #include "TPCFastTransform.h"
-#include "standaloneSettings.h"
 #include "AliHLTTPCRawCluster.h"
+#include "ClusterNativeAccessExt.h"
 
 #define HLTCA_LOGGING_PRINTF
 #include "AliCAGPULogging.h"
 
 #ifdef HAVE_O2HEADERS
 #include "ITStracking/TrackerTraitsCPU.h"
-#include "DataFormatsTPC/ClusterNative.h"
 #include "TRDBase/TRDGeometryFlat.h"
 #else
 namespace o2 { namespace ITS { class TrackerTraits {}; class TrackerTraitsCPU : public TrackerTraits {}; }}
-namespace o2 { namespace TPC { struct ClusterNativeAccessFullTPC {ClusterNative* clusters[36][HLTCA_ROW_COUNT]; unsigned int nClusters[36][HLTCA_ROW_COUNT];}; struct ClusterNative {}; }}
 namespace o2 { namespace trd { struct TRDGeometryFlat {}; }}
 #endif
 using namespace o2::ITS;
@@ -51,16 +50,16 @@ constexpr AliGPUReconstruction::GeometryType AliGPUReconstruction::geometryType;
 static constexpr unsigned int DUMP_HEADER_SIZE = 4;
 static constexpr char DUMP_HEADER[DUMP_HEADER_SIZE + 1] = "CAv1";
 
-AliGPUReconstruction::AliGPUReconstruction(DeviceType type) : mIOPtrs(), mIOMem(), mTRDTracker(new AliHLTTRDTracker), mTPCTracker(nullptr), mITSTrackerTraits(nullptr), mDeviceType(type), mTPCFastTransform(nullptr), mEventDumpSettings(new hltca_event_dump_settings),
-	mClusterNativeAccess(new ClusterNativeAccessFullTPC)
+AliGPUReconstruction::AliGPUReconstruction(DeviceType type) : mIOPtrs(), mIOMem(), mTRDTracker(new AliHLTTRDTracker), mTPCTracker(nullptr), mITSTrackerTraits(nullptr), mDeviceType(type), mTPCFastTransform(nullptr), mClusterNativeAccess(new ClusterNativeAccessExt)
 {
-	mEventDumpSettings->setDefaults();
+	mEventSettings.SetDefaults();
+	mProcessingSettings.SetDefaults();
+	mParam.SetDefaults(&mEventSettings);
 	if (type == CPU)
 	{
 		mTPCTracker.reset(new AliHLTTPCCAGPUTracker);
 		mITSTrackerTraits.reset(new o2::ITS::TrackerTraitsCPU);
 	}
-	mParam.SetDefaults(-5);
 }
 
 AliGPUReconstruction::~AliGPUReconstruction()
@@ -223,7 +222,7 @@ void AliGPUReconstruction::DumpSettings(const char* dir)
 	std::string f;
 	f = dir;
 	f += "settings.dump";
-	if (mEventDumpSettings != nullptr) DumpStructToFile(mEventDumpSettings.get(), f.c_str());
+	DumpStructToFile(&mEventSettings, f.c_str());
 	f = dir;
 	f += "tpctransform.dump";
 	if (mTPCFastTransform != nullptr) DumpFlatObjectToFile(mTPCFastTransform.get(), f.c_str());
@@ -238,9 +237,9 @@ void AliGPUReconstruction::ReadSettings(const char* dir)
 	std::string f;
 	f = dir;
 	f += "settings.dump";
-	mEventDumpSettings.reset(new hltca_event_dump_settings);
-	mEventDumpSettings->setDefaults();
-	ReadStructFromFile<hltca_event_dump_settings>(f.c_str(), mEventDumpSettings.get());
+	mEventSettings.SetDefaults();
+	mParam.UpdateEventSettings(&mEventSettings);
+	ReadStructFromFile(f.c_str(), &mEventSettings);
 	f = dir;
 	f += "tpctransform.dump";
 	mTPCFastTransform = ReadFlatObjectFromFile<TPCFastTransform>(f.c_str());
@@ -343,15 +342,36 @@ template <class T> void AliGPUReconstruction::ReadStructFromFile(const char* fil
 	//printf("Read %d bytes from %s\n", (int) r, file);
 }
 
-void AliGPUReconstruction::SetSettingsStandalone(float solenoidBz)
+void AliGPUReconstruction::ConvertNativeToClusterData()
 {
-	mEventDumpSettings.reset(new hltca_event_dump_settings);
-	mEventDumpSettings->setDefaults();
-	mEventDumpSettings->solenoidBz = solenoidBz;
+	o2::TPC::ClusterNativeAccessFullTPC* tmp = mClusterNativeAccess.get();
+	if (tmp != mIOPtrs.clustersNative)
+	{
+		*tmp = *mIOPtrs.clustersNative;
+	}
+	AliGPUReconstructionConvert::ConvertNativeToClusterData(mClusterNativeAccess.get(), mIOMem.clusterData, mIOPtrs.nClusterData, mTPCFastTransform.get(), mParam.continuousMaxTimeBin);
+	for (unsigned int i = 0;i < NSLICES;i++)
+	{
+		mIOPtrs.clusterData[i] = mIOMem.clusterData[i].get();
+	}
 }
-void AliGPUReconstruction::SetSettingsStandalone(const hltca_event_dump_settings& settings)
+
+void AliGPUReconstruction::SetSettings(float solenoidBz)
 {
-	mEventDumpSettings.reset(new hltca_event_dump_settings(settings));
+	AliGPUCASettingsEvent ev;
+	ev.SetDefaults();
+	ev.solenoidBz = solenoidBz;
+	SetSettings(&ev, nullptr, nullptr);
+}
+void AliGPUReconstruction::SetSettings(const AliGPUCASettingsEvent* settings, const AliGPUCASettingsRec* rec, const AliGPUCASettingsProcessing* proc)
+{
+	mEventSettings = *settings;
+	if (proc) mProcessingSettings = *proc;
+	mParam.SetDefaults(&mEventSettings, rec);
+}
+void AliGPUReconstruction::LoadClusterErrors()
+{
+	mParam.LoadClusterErrors();
 }
 void AliGPUReconstruction::SetTPCFastTransform(std::unique_ptr<TPCFastTransform> tpcFastTransform)
 {

@@ -85,6 +85,7 @@ AliHLTTRDTracker::AliHLTTRDTracker() :
   fHypothesis(nullptr),
   fCandidates(nullptr),
   fSpacePoints(nullptr),
+  fExternalGeometry(false),
   fGeo(nullptr),
   fDebugOutput(false),
   fMinPt(0.6),
@@ -117,6 +118,7 @@ AliHLTTRDTracker::~AliHLTTRDTracker()
 }
 
 GPUd() bool AliHLTTRDTracker::Init(AliHLTTRDGeometry *geo)
+
 {
   //--------------------------------------------------------------------
   // Initialise tracker
@@ -147,7 +149,7 @@ GPUd() bool AliHLTTRDTracker::Init(AliHLTTRDGeometry *geo)
     return false;
   }
   SetPointersTracklets(fTrackletsDataPtr);
-
+  
   for (int iDet=0; iDet<kNChambers; ++iDet) {
     fNtrackletsInChamber[iDet] = 0;
     fTrackletIndexArray[iDet] = -1;
@@ -158,6 +160,7 @@ GPUd() bool AliHLTTRDTracker::Init(AliHLTTRDGeometry *geo)
   for (int iLy=0; iLy<kNLayers; iLy++) {
     fR[iLy] = x0[iLy];
   }
+
   auto* matrix = fGeo->GetClusterMatrix(0);
   My_Float loc[3] = { fGeo->AnodePos(), 0., 0. };
   My_Float glb[3] = { 0., 0., 0. };

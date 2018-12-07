@@ -43,7 +43,9 @@ CXXFILES					= SliceTracker/AliHLTTPCCASliceData.cxx \
 								GlobalTracker/AliHLTTPCCAGPUTrackerBase.cxx \
 								GlobalTracker/AliGPUReconstruction.cxx \
 								GlobalTracker/AliGPUReconstructionDeviceBase.cxx \
+								GlobalTracker/AliGPUReconstructionConvert.cxx \
 								GlobalTracker/AliGPUCAParam.cxx \
+								GlobalTracker/AliGPUCASettings.cxx \
 								TPCFastTransformation/TPCFastTransform.cxx \
 								TPCFastTransformation/TPCDistortionIRS.cxx \
 								TPCFastTransformation/IrregularSpline1D.cxx \

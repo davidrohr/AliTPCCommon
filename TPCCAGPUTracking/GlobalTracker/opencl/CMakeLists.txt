@@ -87,6 +87,7 @@ include_directories(${CAGPUDIR}/GlobalTracker/opencl
                     ${CAGPUDIR}/TRDTracking
                     ${CAGPUDIR}/Merger
                     ${ALITPCCOMMON_DIR}/sources/Common
+                    ${CMAKE_CURRENT_BINARY_DIR}
                    )
 
 # Additional include folders in alphabetical order except ROOT
@@ -146,6 +147,7 @@ if(ALITPCCOMMON_BUILD_TYPE STREQUAL "O2")
     set(BUCKET_NAME TPCCAGPUTrackingOCL_bucket)
 
     O2_GENERATE_LIBRARY()
+    install(FILES ${HDRS} DESTINATION include/AliTPCCommon)
 
     target_link_libraries(${MODULE} OpenCL O2TPCCAGPUTracking)
 endif()

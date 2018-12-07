@@ -52,6 +52,7 @@ class AliHLTTRDTracker {
     Hypothesis() : fLayers(0), fCandidateId(-1), fTrackletId(-1), fChi2(9999.f) {}
   };
 
+
   GPUd() size_t SetPointersBase(void* base, int maxThreads = 1, bool doConstruct = false);
   GPUd() size_t SetPointersTracklets(void* base);
   GPUd() size_t SetPointersTracks(void *base, int nTracks);
@@ -127,6 +128,7 @@ class AliHLTTRDTracker {
   Hypothesis *fHypothesis;                    // array with multiple track hypothesis
   HLTTRDTrack *fCandidates;                   // array of tracks for multiple hypothesis tracking
   AliHLTTRDSpacePointInternal *fSpacePoints;  // array with tracklet coordinates in global tracking frame
+  bool fExternalGeometry;                     // Geometry taken fron external, do not delete!
   AliHLTTRDGeometry *fGeo;                    // TRD geometry
   bool fDebugOutput;                          // store debug output
   float fMinPt;                               // min pt of TPC tracks for tracking
